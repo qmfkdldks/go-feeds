@@ -1,0 +1,1846 @@
+
+// Feeds declaration
+syntax = "proto3";
+
+package main;
+
+// FeedMetadata
+
+message FeedMetadata {
+  enum ProcessingInstruction {
+    // Do not use. Processing instructions need to be set to one of the values
+    // below.
+    PROCESS_UNKNOWN = 0;
+
+    // This Feed message is one shard of a complete feed. Anything previously
+    // supplied by this partner will be deleted; the contents of this feed
+    // represent the entire state of the world.
+    PROCESS_AS_COMPLETE = 1;
+
+    // This Feed message is one shard of an incremental feed. Existing entities
+    // will be left untouched except as modified in this feed.
+    PROCESS_AS_INCREMENTAL = 2;
+  }
+
+  // Instructs us how to process the feed: either as a shard of a complete feed,
+  // or as a shard of an incremental update. (required)
+  ProcessingInstruction processing_instruction = 1;
+
+  // The current shard and total number of shards for this feed.
+  //
+  // Shard number is assumed to be zero-based.
+  //
+  // There does not need to be any relationship to the file name.
+  //
+  // Shards do not need to be transferred in order, and they may not be
+  // processed in order. (both required)
+  int32 shard_number = 2;
+  int32 total_shards = 3;
+
+  // An identifier that must be consistent across all shards in a feed.
+  // This value must be globally unique across each feed type.
+  //
+  // This value ensures that complete feeds spanning multiple shards are
+  // processed together correctly.
+  //
+  // Clients only need to set this value when the processing_instruction is set
+  // to PROCESS_AS_COMPLETE and the feed spans multiple shards (defined by
+  // total_shards).
+  //
+  // Feeds that span multiple shards must set this nonce to the same value.
+  // (required if total shards > 1)
+  uint64 nonce = 5;
+
+  // The timestamp at which this feed shard was generated.
+  //
+  // In Unix time format (seconds since the epoch). (required)
+  int64 generation_timestamp = 4;
+}
+
+// Merchant feed specification
+
+message MerchantFeed {
+  FeedMetadata metadata = 1;
+  repeated Merchant merchant = 2;
+}
+
+// Info about a merchant that is on the aggregator's platform.
+// A merchant feed should be a list of this message.
+message Merchant {
+  // An opaque string that uniquely identifies a merchant.
+  // Strongly recommended to only include URL-safe characters. (required)
+  string merchant_id = 1;
+  // The name, telephone, url and geo are used to support matching partner
+  // inventory with merchants already present on Google Maps. This information
+  // will not be displayed.
+  //
+  // The name of the merchant. (required)
+  string name = 2;
+  // The contact telephone number of the merchant including its country and area
+  // codes, e.g. +14567891234. Highly recommended. (optional)
+  string telephone = 3;
+  // The url of the merchant's public website. Highly recommended. (optional)
+  string url = 4;
+  // The Geo info of the merchant, including latitude, longitude, and address.
+  // (required)
+  GeoCoordinates geo = 5;
+  // The category of the business in aggregator's platform. (required)
+  // See https://developers.google.com/places/supported_types for possible
+  // categories.
+  string category = 6;
+  // This field is deprecated.
+  int64 num_bookings_30d = 7 [deprecated = true];
+  // This field is deprecated, please use tax_rate instead.
+  uint32 tax_rate_basis_points = 8 [deprecated = true];
+
+  // The merchant's tax rate. If present this field overrides the deprecated
+  // tax_rate_basis_points field. An empty message (i.e. tax_rate { }) will
+  // reset the applied tax rate to zero.
+  //
+  // This field is required for payments integration. (optional)
+  TaxRate tax_rate = 9;
+
+  // Restrictions to the payment methods this merchant accepts. We assume no
+  // restrictions exist if this field is not set. (optional)
+  PaymentRestrictions payment_restrictions = 10;
+
+  // Payment options available for this merchant. Services under this merchant
+  // will be able to individually limit the payment options they allow.
+  // (optional)
+  repeated PaymentOption payment_option = 11;
+
+  // Configuration for a tokenized payment processor, if the merchant has
+  // support for it. (optional)
+  //
+  // Deprecated. See the documentation for tokenization_config for current
+  // methodology.
+  PaymentProcessorConfig payment_processor_config = 12 [deprecated = true];
+
+  // Configuration for a tokenized payment processor, if the merchant has
+  // support for it.
+  TokenizationConfig tokenization_config = 15;
+
+  // The specific merchant's Terms and Conditions displayed to the user when a
+  // service is being booked through Reserve with Google.
+  // In addition to these the aggregator partner's Terms and Conditions are
+  // always displayed to the user and must not be provided here. (optional)
+  Terms terms = 13;
+
+  // An opaque string that identifies the consumer-facing brand to use when
+  // displaying partner attribution. This field allows partners with multiple
+  // consumer-facing brands to provide merchants for all brands within the same
+  // feed.
+  //
+  // A brand consists of consumer-facing properties like the name, logo, Terms
+  // of Service, and Privacy Policy.
+  //
+  // If there is only one consumer-facing partner brand, this field does not
+  // need to be set and can be ignored.
+  //
+  // If the partner...
+  //
+  //   Does not have multiple consumer-facing brands?
+  //     --> Ignore this field
+  //
+  //   Has Multiple Brands that are configured?
+  //
+  //       If this field is set
+  //         --> Associated consumer-facing brand attribution is used
+  //
+  //       If this field is unset or the empty string
+  //         --> Default consumer-facing brand attribution is used
+  //
+  // Careful Note: most partners do not need to set this field. If a partner
+  // wishes to use this field, they must contact us first to configure separate
+  // brands, including the default brand.
+  string brand_id = 14;
+
+  // Hints to help Google match a merchant to a place on Google Maps.
+  // Note: Typically, this field does not need to be set, as Google will match
+  // merchants to places on Google Maps using the information provided above.
+  // (optional)
+  MerchantMatchingHints matching_hints = 16;
+
+  // Definitions for any service attributes used to describe the Services for
+  // this Merchant. (optional)
+  repeated ServiceAttribute service_attribute = 17;
+  // ...
+}
+
+// The Geo data of a location, including latitude, longitude, and address.
+// At least one of [lat/lng or address] should be provided (or both).
+message GeoCoordinates {
+  double latitude = 1;   // In degrees. (optional)
+  double longitude = 2;  // In degrees. (optional)
+
+  // Address for a location, could either be structured or unstructured.
+  oneof addresses {
+    // Postal address of the location, preferred.
+    PostalAddress address = 3;
+    // An unstructured address could also be provided as a fallback.
+    // E.g. "1600 amphitheatre parkway mountain view, ca 94043"
+    string unstructured_address = 4;
+  }
+}
+
+// The postal address for a merchant.
+message PostalAddress {
+  // The country, e.g. "US". (required)
+  string country = 1;
+  // The locality/city, e.g. "Mountain View". (required)
+  string locality = 2;
+  // The region/state/province, e.g. "CA". This field is only required in
+  // countries where region is commonly a part of the address. (optional)
+  string region = 3;
+  // The postal code, e.g. "94043". (required)
+  string postal_code = 4;
+  // The street address, e.g. "1600 Amphitheatre Pkwy". (required)
+  string street_address = 5;
+}
+
+// A tax rate applied when charging the user for a service, and which can be set
+// on either a per merchant, or per service basis.
+message TaxRate {
+  // A tax rate in millionths of one percent, effectively giving 6 decimals of
+  // precision. For example, if the tax rate is 7.253%, this field should be set
+  // to 7253000.
+  //
+  // If this field is left unset or set to 0, the total price charged to a user
+  // for any service provided by this merchant is the exact price specified by
+  // Service.price. The service price is assumed to be exempt from or already
+  // inclusive of applicable taxes. Taxes will not be shown to the user as a
+  // separate line item.
+  //
+  // If this field is set to any nonzero value, the total price charged to a
+  // user for any service provided by this merchant will include the service
+  // price plus the tax assessed using the tax rate provided here. Fractions of
+  // the smallest currency unit (for example, fractions of one cent) will be
+  // rounded using nearest even rounding. Taxes will be shown to the user as a
+  // separate line item. (required)
+  int32 micro_percent = 1;
+}
+
+// Restrictions to the credit card types this merchant accepts.
+message CreditCardRestrictions {
+  // A credit card type.
+  enum CreditCardType {
+    // Unused.
+    CREDIT_CARD_TYPE_UNSPECIFIED = 0;
+
+    // A Visa credit card.
+    VISA = 1;
+
+    // A Mastercard credit card.
+    MASTERCARD = 2;
+
+    // An American Express credit card.
+    AMERICAN_EXPRESS = 3;
+
+    // A Discover credit card.
+    DISCOVER = 4;
+
+    // A JCB credit card.
+    JCB = 5;
+  }
+  // A list of supported credit cards. No credit cards are supported if empty.
+  // (optional)
+  repeated CreditCardType credit_card_type = 1;
+}
+
+// Restrictions to the payment methods this merchant accepts.
+message PaymentRestrictions {
+  // Restrictions to the credit cards this merchant accepts. We assume all
+  // credit cards are accepted if this field is not set.
+  // Note that the list of cards supported by CreditCardType will grow over
+  // time, meaning that leaving this empty subjects a configuration to future
+  // changes. (optional)
+  CreditCardRestrictions credit_card_restrictions = 1;
+}
+
+// A payment option, which can be used to pay for services provided by a
+// merchant. Payment options can be shared among multiple merchants
+// (e.g. merchants belonging to the same chain).
+message PaymentOption {
+  // An opaque string from an aggregator partner to identify a payment option.
+  //
+  // This id is global to the whole aggregator, and re-using a value across
+  // multiple merchants will allow a user to pay with the corresponding payment
+  // option across those merchants.
+  //
+  // When re-using an id across multiple merchants, updating any value for a
+  // payment option under one merchant will also update any other payment option
+  // with the same id, under a different merchant. As such, it's a best practice
+  // to have all payment options sharing the same id, always be updated to
+  // identical values, to avoid any possibility of nondeterministic behavior.
+  //
+  // Do NOT confuse it with the internal payment option id. (required)
+  string payment_option_id = 1;
+  // The name of the payment option. This can be user visible. (required)
+  string name = 2;
+  // A description of the payment option. This can be user visible. (optional)
+  string description = 3;
+  // The price of the payment option. (required)
+  Price price = 4;
+  // The tax rate for this payment option. If present this field overrides the
+  // tax_rate field present in the Merchant or Service. An empty message
+  // (i.e. tax_rate { }) will reset the applied tax rate to zero. (optional)
+  TaxRate tax_rate = 5;
+
+  // A payment option type.
+  enum PaymentOptionType {
+    // Unused.
+    PAYMENT_OPTION_TYPE_UNSPECIFIED = 0;
+    // Payment option can only be used once.
+    PAYMENT_OPTION_SINGLE_USE = 1;
+    // Payment option can be used if its session count > 0.
+    PAYMENT_OPTION_MULTI_USE = 2;
+    // Payment option can be used within its valid time range - session count
+    // is inapplicable.
+    PAYMENT_OPTION_UNLIMITED = 3;
+  }
+  // The type of this payment option. Single-use for drop-ins, multi-use for
+  // packs, and unlimited for memberships. (required)
+  PaymentOptionType payment_option_type = 6;
+  // How many sessions this payment option can be used for. Valid only for
+  // multi-session / packs, where the value should be > 1.
+  // (required if payment_option_type is PAYMENT_OPTION_MULTI_USE)
+  int64 session_count = 7;
+  // The payment option can be purchased within this interval. (optional)
+  TimeRange purchase_interval = 8;
+  // The payment option can be used within this interval (e.g. special price
+  // for January 2017).
+  // If present, this overrides valid_duration_sec and activation_type.
+  // (optional)
+  TimeRange valid_interval = 9;
+  // Duration of the payment option validity (e.g. 30 day membership).
+  // (optional)
+  int64 valid_duration_sec = 10;
+
+  // Defines how the validity start date is determined.
+  enum ActivationType {
+    // Unused.
+    ACTIVATION_TYPE_UNSPECIFIED = 0;
+    // Validity starts at the time of purchase.
+    ACTIVATION_ON_PURCHASE = 1;
+    // Validity starts when the payment option is used for the first time.
+    ACTIVATION_ON_FIRST_USE = 2;
+  }
+  // Defines how the validity start date is determined for this payment option.
+  // (required)
+  ActivationType activation_type = 11;
+
+  // Restricts the users eligible to purchase this payment option. Can be used
+  // to restrict a promotional payment option to a subset of users. If not set,
+  // all users are eligible. (optional)
+  UserPurchaseRestriction user_restriction = 12;
+}
+
+message UserPurchaseRestriction {
+  // A payment option that can only be purchased by users who have never
+  // purchased from the same merchant before. (required if new_to_payment_option
+  // is not set)
+  bool new_to_merchant = 1;
+
+  // A payment option that can only be purchased by users who have never
+  // purchased the same payment option before. (required if new_to_payment is
+  // not set)
+  bool new_to_payment_option = 2;
+}
+
+// A closed-open time range, i.e. [begin_sec, end_sec)
+message TimeRange {
+  // Seconds of UTC time since Unix epoch (required)
+  int64 begin_sec = 1;
+  // Seconds of UTC time since Unix epoch (required)
+  int64 end_sec = 2;
+}
+
+// A configuration for a payment processor, setup on a per Merchant basis.
+message PaymentProcessorConfig {
+  // Defines a specific payment processor partner.
+  enum Processor {
+    // Unused
+    PROCESSOR_UNSPECIFIED = 0;
+
+    // A configuration for payments with Stripe.
+    PROCESSOR_STRIPE = 1;
+
+    // A configuration for payments with Braintree.
+    PROCESSOR_BRAINTREE = 2;
+  }
+  // Defines the payment processor partner this configuration applies to.
+  // (required)
+  Processor processor = 1;
+
+  // The key used to identify this merchant with the payment processor.
+  //
+  // For Stripe, refer to: https://stripe.com/docs/dashboard#api-keys
+  // For Braintree, refer to:
+  // https://articles.braintreepayments.com/control-panel/important-gateway-credentials
+  // (required)
+  string public_key = 2;
+
+  // The API version number sent to the payment processor along with payment
+  // requests. (required)
+  string version = 3;
+}
+
+// A configuration for payment-processor tokenization, set up on a per-Merchant
+// basis.
+message TokenizationConfig {
+  // A tokenization configuration will typically have one
+  // tokenization_parameter whose key is "gateway" and whose value is the
+  // name of the processor.
+  //
+  // The rest of the parameters are dependent on the processor.  See
+  // documentation from Google Pay and your processor for further information.
+  // https://developers.google.com/pay/api/web/object-reference# \
+  //   PaymentMethodTokenizationSpecification
+  // https://developers.google.com/pay/api/#participating-google-pay-processors
+  //
+  // Braintree example:
+  // tokenization_parameter { key: "gateway" value: "braintree" }
+  // tokenization_parameter { key: "braintree:apiVersion" value: "v1" }
+  // tokenization_parameter { key: "braintree:sdkVersion" value: "2.30.0" }
+  // tokenization_parameter { key: "braintree:merchantId" value: "abcdef" }
+  // tokenization_parameter { key: "braintree:clientKey"
+  //                          value: "production_xxx_yyy" }
+  //
+  // Stripe example:
+  // tokenization_parameter { key: "gateway" value: "stripe" }
+  // tokenization_parameter { key: "stripe:version" value: "2018-02-28" }
+  // tokenization_parameter { key: "stripe:publishableKey" value: "pk_1234" }
+  //
+  // Adyen example:
+  // tokenization_parameter { key: "gateway" value: "adyen" }
+  // tokenization_parameter { key: "gatewayMerchantId" value: "yourId" }
+  map<string, string> tokenization_parameter = 1;
+
+  // The following field controls how much billing information to include in the
+  // payment token. Verification of billing information is the responsibility of
+  // Google Pay upon entry of Form Of Payment (FOP). If the FOP is currently in
+  // Google Pay without the requested level of billing information, the user
+  // will not see their FOP as a choice, and they will have to enter the FOP and
+  // required information according to the current Google Pay UI.
+  //
+  // Some merchants like to keep the requested information minimal because
+  // requesting more information can lead to lower conversion rates.
+  //
+  // Note that they can also go to payments.google.com to enhance an FOP but
+  // most users will not know to do so.
+
+  // How much of the Billing Address to require of the user and include in the
+  // token. The enum values correspond to parameters in the Google Pay API (see
+  // https://developers.google.com/pay/api/web/reference/object\
+  //  #BillingAddressParameters).
+  enum BillingInformationFormat {
+    BILLING_INFORMATION_FORMAT_UNSPECIFIED = 0;
+    // name, country code, and postal code (GPay default setting).
+    MIN = 1;
+    // name, street address, locality, region, country code, and postal code
+    FULL = 2;
+  }
+
+  // Include in the payment token the user's billing information as entered into
+  // Google Pay with their FOP (see above).
+  BillingInformationFormat billing_information_format = 2;
+
+  // Name of the Merchant Of Record (MOR).  This user-visible name will be shown
+  // in 3DS2 challenges.  In some cases, this is the Merchant, in others this is
+  // the Aggregator.
+  string merchant_of_record_name = 3;
+
+  // Country where transaction will be processed, in ISO 3166-1 alpha-2 form.
+  string payment_country_code = 4;
+
+  // Per CardNetwork Processing information.
+  message CardNetworkParameters {
+    // The Card Network that these parameters are about
+    CreditCardRestrictions.CreditCardType card_network = 1;
+    // The Bank Identification Number of the acquiring bank used for processing
+    // of the card.
+    //
+    // If this value is not known to you, you should ask your acquirer or
+    // merchant processor representative.
+    string acquirer_bin = 2;
+    // The merchant identifier assigned by the acquirer to the merchant for use
+    // in transaction authorization (for Visa and American Express
+    // transactions).
+    //
+    // If this value is not known to you, you should ask their acquirer or
+    // merchant processor representative.
+    string acquirer_merchant_id = 3;
+  }
+
+  // Per-Card Network processing parameters.
+  //
+  // These are currently only required for PSD2
+  // (https://en.wikipedia.org/wiki/Payment_Services_Directive)
+  // processing when payment_country_code is a European country where PSD2 is in
+  // effect.  They are also only currently required for VISA and
+  // AMERICAN_EXPRESS.
+  repeated CardNetworkParameters card_network_parameters = 5;
+
+  // Fields supported to authorize a card transaction.
+  //
+  // See the GPay documentation at
+  // https://developers.google.com/pay/api/web/reference/object#CardParameters
+  enum AuthMethod {
+    AUTH_METHOD_UNSPECIFIED = 0;
+    // This authentication method is associated with payment cards stored on
+    // file with the user's Google Account. Returned payment data includes
+    // personal account number (PAN) with the expiration month and the
+    // expiration year.
+    PAN_ONLY = 1;
+    // This authentication method is associated with cards stored as Android
+    // device tokens. Returned payment data includes a 3-D Secure (3DS)
+    // cryptogram generated on the device.
+    CRYPTOGRAM_3DS = 2;
+  }
+
+  // Defines types of cardholder data that are accepted by the gateway.
+  // If not specified, no restrictions are applied.
+  //
+  // Note that partners who use commercial gateways should leave this
+  // empty unless their gateway provider has specified otherwise.  Restricting
+  // allowed_auth_methods is most useful in the scenario that a partner
+  // integrates with GPay as a gateway themselves.
+  repeated AuthMethod allowed_auth_methods = 6;
+}
+
+// A set of rules and guidelines that are displayed to the
+// user in order to make a booking through Reserve with Google.
+message Terms {
+  // The URL to the Terms and Conditions. (optional)
+  string url = 1;
+
+  // The text to be displayed to the user.
+  // Use localized_text below for new integrations.
+  string text = 2;
+
+  // The localized text to be displayed to the user. (required)
+  Text localized_text = 3;
+}
+
+// Hints used to help Google match a merchant to a place on Google Maps.
+message MerchantMatchingHints {
+  // The Place ID for a place in the Google Places database and on Google Maps.
+  // See https://developers.google.com/places/place-id for more about Place IDs.
+  // If this is provided, Google will use it as a hint when matching, and
+  // prioritize the hint over other candidates.
+  string place_id = 1;
+
+  // ...
+}
+
+// Service attributes are partner-defined categories that describe the Services
+// for a Merchant. For example, a bank may define an "Account Type"
+// service attribute with possible values of "Personal" and "Business", while a
+// hair salon may define a "Service Type" service attribute with possible
+// values of "Haircut", "Color", and "Style".
+message ServiceAttribute {
+  // An identifier that uniquely identifies this service attribute among others
+  // for the same merchant, e.g. "account-type".
+  string attribute_id = 1;
+
+  // A user-visible name for this attribute, e.g. "Account Type".
+  string attribute_name = 2;
+
+  // Represents a possible value for a particular service attribute.
+  message Value {
+    // An identifier that uniquely identifies this value among others for
+    // this service attribute, e.g. "personal".
+    string value_id = 1;
+
+    // A user-visible name for the value, e.g. "Personal".
+    string value_name = 2;
+  }
+
+  // All possible values for this service attribute.
+  repeated Value value = 3;
+}
+
+// Service feed specification
+
+message ServiceFeed {
+  FeedMetadata metadata = 1;
+  repeated Service service = 2;
+}
+
+// The definition of a service provided by a merchant.
+message Service {
+  // An opaque string from an aggregator partner which uniquely identifies a
+  // merchant. (required)
+  string merchant_id = 1;
+  // An opaque string from an aggregator partner which uniquely identifies the
+  // service. (required)
+  string service_id = 2;
+  // The name of the service. Deprecated. Please use localized_service_name.
+  string name = 3 [deprecated = true];
+  // The name of the service, e.g. "Men's haircut". Possibly in several locales.
+  // (required)
+  Text localized_service_name = 26;
+  // The description of the service.
+  // Deprecated. Please use localized_description.
+  string description = 4 [deprecated = true];
+  // The user-visible description of the service, possibly in several locales.
+  // Populating service description is strongly recommended, but not strictly
+  // required.
+  //
+  // This field now supports both plain-text and HTML-like formatting rules to
+  // display structural contents to end-users. Unlike plain text sections,
+  // customized layouts can be created here using headings, paragraphs, lists
+  // and some phrase tags. Please read the following instructions and notes
+  // carefully to ensure you create the best user-experience.
+  //
+  // Supported HTML-like formatting tags:
+  //
+  // Heading tags: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
+  //   Heading tags can be used to display titles and sub-titles. For example,
+  //   <h1>Itinerary</h1> will display the inline text as the most important
+  //   heading of the section. Note that any inner HTML tags, styles or
+  //   attributes will be ignored. For example, <h1 style=".."> will be treated
+  //   the same as <h1>. Only pure text wil be preserved.
+  //
+  // Paragraph tag: <p>:
+  //   The paragraph tag can be used to highlight a detailed introduction or
+  //   contents. Any inner tags, styles or attributes will be ignored, with a
+  //   few exceptions: <br>, <strong> and <em>. Please see the phrase tag
+  //   section below for more details.
+  //
+  // List tags: <ul>, <ol>, <li>
+  //   The <ul> tag can be used with the <li> tag to display unordered lists,
+  //   and the <ol> tag can be used with <li> to display ordered lists. This is
+  //   a good way to display checklists, highlights, or any other lists that fit
+  //   your use-cases.
+  // Example: To show a list of features of a cruise trip:
+  //   <ol>
+  //     <li>Wonderful ocean view and chances to play with wildlife.</li>
+  //     <li>Carefully designed travel arrangements and services.</li>
+  //     <li>Gauranteed lowest price.</li>
+  //   </ol>
+  // Note that only <li> children under <ul> or <ol> tags will be converted. All
+  // other children will be dropped. Also, any inner tags, attributes and styles
+  // will be ignored; we only preserve pure text contents.
+  //
+  // Division tag: <div>
+  //   All supported inner tags of the <div> tag will be parsed with the rules
+  //   stated above, imply <div> tag itself does not mean any grouping or
+  //   indenting here. Also, any inner attributes and styles will be ignored.
+  //
+  // Phrase tags: <br>, <strong>, <em>:
+  //   Only the three tags mentioned above are supported. <br> can be used to
+  //   break lines in paragraphs, and <strong>/<em> can be used to highlight
+  //   important text. Any other phrase tags will be ignored.
+  //
+  // Unsupported tags:
+  //   * <html>, <header>, and <body> tags are not allowed.
+  //   * Any other tags not mentioned above are not supported (for example
+  //     <table>, <td> ...).
+  // Any URLs, anchors, and links will be stripped, and will never be displayed
+  // to end-users. If you want to use photos to create a rich user experience,
+  // please use the "related_media" field below to send your photo URLs.
+  //
+  // Important notes:
+  //   * Try not to use other tags except for the supported ones mentioned
+  //     above, because the contents within unsupported tags will be stripped,
+  //     and may lead to an undesirable user experience.
+  //   * Try avoid deep nested structures like more than 3 different heading
+  //     levels or nested lists. Keeping the structure flat, simple, and
+  //     straightforward, helps to create a better user experience.
+  //   * If the currently supported layouts are not sufficient for your use
+  //     cases, please reach out to the Reserve with Google team.
+  //   * The recommended maximum size is 32,000 characters.
+  //
+  // (optional)
+  Text localized_description = 27;
+  // The price of the service. (optional, overridden when payment options or
+  // ticket types present)
+  Price price = 5;
+  // Describes how the price is interpreted and displayed to the user. Can be
+  // used by any vertical except Dining and Things To Do to configure display of
+  // the service price. (optional)
+  PriceInterpretation price_interpretation = 23;
+  // Rules to book/cancel an appointment. (optional)
+  SchedulingRules rules = 6;
+  // Intake forms to customize the service. (optional)
+  //
+  // Deprecated. Please see intake_form and per_ticket_intake_form.
+  repeated ServiceIntakeForm form = 7 [deprecated = true];
+
+  // A form requesting additional information from the user when they book this
+  // service. (optional)
+  ServiceIntakeForm intake_form = 20;
+
+  // A form requesting additional information from the user when they book this
+  // service. This form must be filled out once for each ticket the user is
+  // booking. (optional)
+  ServiceIntakeForm per_ticket_intake_form = 21;
+
+  // Enum to indicate the prepayment type.
+  enum PrepaymentType {
+    // By default we will assume that the prepayment is NOT_SUPPORTED.
+    PREPAYMENT_TYPE_UNSPECIFIED = 0;
+    // The user has to pay this service at the booking time.
+    REQUIRED = 1;
+    // The user can choose to pre-pay this service at the booking time or later,
+    // but it is not required in order to book.
+    OPTIONAL = 2;
+    // The prepayment is not supported for this service.
+    NOT_SUPPORTED = 3;
+  }
+  // Whether a prepayment is required, optional or not supported. (optional)
+  PrepaymentType prepayment_type = 8;
+
+  // The service's tax rate. If present this field overrides any tax_rate set at
+  // the merchant level. An empty message (i.e. tax_rate { }) will reset the
+  // applied tax rate to zero. (optional)
+  TaxRate tax_rate = 9;
+
+  // A list of ids referencing the payment options which can be used to pay
+  // for this service. The actual payment options are defined at the Merchant
+  // level, and can also be shared among multiple Merchants. (optional)
+  repeated string payment_option_id = 10;
+
+  // Defines how a deposit may be charged to the user. Can be overridden at the
+  // availability level. (optional)
+  Deposit deposit = 11;
+
+  // Defines a no show fee that may be charged to the user. Can be overridden
+  // at the availability level. (optional)
+  NoShowFee no_show_fee = 12;
+
+  // Indicates whether the user must provide a credit card in order to book this
+  // service.
+  // This value can be overridden at the availability level. (optional)
+  RequireCreditCard require_credit_card = 13;
+
+  // An action link related to this service. If action link exists, type (see
+  // below) must be set in the Service.
+  repeated ActionLink action_link = 14;
+
+  enum ServiceType {
+    SERVICE_TYPE_UNSPECIFIED = 0;
+    SERVICE_TYPE_DINING_RESERVATION = 1;
+    SERVICE_TYPE_FOOD_ORDERING = 2;
+    SERVICE_TYPE_EVENT_TICKET = 3;
+    SERVICE_TYPE_TRIP_TOUR = 4;
+
+    // Service that provides appointments or classes. Recommended for (1) health
+    // and fitness, (2) spa and beauty, and (3) financial consults and
+    // evaluations services. Please see the supported service types:
+    // https://developers.google.com/maps-booking/guides/end-to-end-integration/overview
+    SERVICE_TYPE_APPOINTMENT = 5;
+  }
+
+  // The predefined type of this service. (optional)
+  ServiceType type = 15;
+
+  // Types of tickets that can be booked/purchased for this service. Only
+  // supported in order based booking API, see
+  // https://developers.google.com/maps-booking/guides/partner-implementing-booking-server-1a
+  // (optional)
+  repeated TicketType ticket_type = 16;
+
+  // Photos related to this service. Google will crawl these media to ensure
+  // that they are displayed correctly to end-users. (optional)
+  repeated RelatedMedia related_media = 17;
+
+  // Service attribute values that apply to this service (optional).
+  // Each Service may have zero or more values for each service attribute
+  // defined in the corresponding Merchant.
+  repeated ServiceAttributeValueId service_attribute_value_id = 18;
+
+  // Rules related to joining the waitlist. Should be populated if the service
+  // and merchant support waitlist functionality. Should not be populated
+  // otherwise.
+  WaitlistRules waitlist_rules = 19;
+
+  // Additional information unique to the event ticketing vertical. (optional)
+  TicketingVerticalSpecificData ticketing_vertical_specific_data = 22;
+
+  // Depth of integration we support for this service. (optional)
+  // Irrelevant for partners with the starter integration. End to end will
+  // always be disabled for these partners.
+  IntegrationType integration_type = 24;
+
+  // Order level fees for purchasing this service. (optional)
+  PerOrderFee per_order_fee = 25;
+
+  // Content fields specific to Tours and Activities.
+  ToursAndActivitiesContent tours_and_activities_content = 28;
+
+  // Locations related to this service. (optional)
+  // IMPORTANT NOTES:
+  // 1. The Location.LocationType must be supplied when using this field.
+  // 2. If there are multiple visited locations related to this service, or the
+  // START_LOCATION is different from the VISITED_LOCATION, the
+  // START_LOCATION must be specified.
+  // Example:
+  //  - A guided biking tour visiting three venues, the start venue needs to be
+  //  specified.
+  //  - A bus tour meeting at a hotel lobby and then head to the visited venue.
+  //  The meeting location needs to be specified.
+  repeated Location location = 29;
+
+  // User rating for this service as an aggregate metric over all reviews.
+  Rating rating = 30;
+}
+
+// The price of a service or a fee.
+message Price {
+  // The price in micro-units of the currency.
+  // For example: 1.95 USD is 1950000 in micro-units.
+  // If your price contains fractions of the smallest currency unit, then it
+  // will be rounded using nearest even rounding (e.g. 2.5 cents rounded
+  // to 2 cents, 3.5 cents rounded to 4 cents, 0.5 cents rounded to 0 cents,
+  // 2.51 cents rounded to 3 cents). (required)
+  int64 price_micros = 1;
+  // The currency of the price that is defined in ISO 4217. (required)
+  string currency_code = 2;
+  // An optional and opaque string that identifies the pricing option that is
+  // associated with the extended price. (optional)
+  string pricing_option_tag = 3;
+}
+
+// Describes how a Price should be interpreted and displayed to the user.
+enum PriceInterpretation {
+  // Price interpretation unspecified, defaults to EXACT_AMOUNT.
+  PRICE_INTERPRETATION_UNSPECIFIED = 0;
+
+  // When the price should be interpreted as a specific value.
+  //
+  // Examples:
+  //   $20 for a yoga class; $15 for a child haircut
+  EXACT_AMOUNT = 1;
+
+  // When the price of a service is variable but a minimum price is known and
+  // displayed to consumers. Consumers may make choices which increase the
+  // price.
+  //
+  // Note that any service that uses this PriceInterpretation must use
+  // PrepaymentType NOT_SUPPORTED.
+  //
+  // Examples:
+  //   $30 for dog grooming, but additional consumer choices may increase the
+  //   price
+  STARTS_AT = 2;
+
+}
+
+// A possibly-localized text payload. Some Text fields may contain marked-up
+// content.
+message Text {
+  // Text value in an unknown locale. Required if and only if `localized_value`
+  // is empty. The locale for this value may depend on the partner or service
+  // provider -- it should not be assumed to be any specific language.
+  string value = 1;
+
+  // Per-locale text values. Optional.
+  repeated LocalizedString localized_value = 2;
+}
+
+// Instance of a string in one locale.
+message LocalizedString {
+  // IETF BCP 47 language code, such as "en", "mas", "zh-Hant", "de-CH-1901".
+  // See http://www.w3.org/International/articles/language-tags/.
+  string locale = 1;
+
+  // Message in the locale above (UTF-8).
+  string value = 2;
+}
+
+// The scheduling rules for a service.
+message SchedulingRules {
+  // The duration (in seconds) from when the last booking can be made to
+  // when the availability slot starts or ends.
+  //
+  // If "min_advance_booking" is set, the last bookable time is calculated as
+  // (<slot start time> - "min_advance_booking").
+  // If "min_booking_buffer_before_end_time" is set, the last bookable time is
+  // calculated as (<slot end time> - "min_booking_buffer_before_end_time").
+  // Note that the value of "min_booking_buffer_before_end_time" must be
+  // positive if set.
+  // If both are unset, the slot is bookable until the slot begin time.
+  //
+  // Examples:
+  //  * A haircut that needs to be booked at least 1 hour before the start time.
+  //      'scheduling_rules{ min_advance_booking: 3600 ...}`
+  //
+  //  * A museum where the last ticket can be purchased 30 mins before closing:
+  //     'scheduling_rules{ min_booking_buffer_before_end_time: 1800 ...}'
+  //
+  //  * A movie ticket that needs to be purchased before the start time.
+  //        'scheduling_rules{ ...}' (leave this field empty)
+  // (optional)
+  oneof min_booking_buffer {
+    // The duration (in seconds) from when the last booking can be made to
+    // when the availability slot starts.
+    int64 min_advance_booking = 1;
+
+    // The duration (in seconds) from when the last booking can be made to
+    // when the availability slot ends. If this field is set, the
+    // "admission_policy" field must be set to TIME_FLEXIBLE to indicate that
+    // users can use the purchased tickets after slots start.
+    int64 min_booking_buffer_before_end_time = 6;
+  }
+
+  // The minimum advance notice in seconds required to cancel a booked
+  // appointment online. (optional)
+  int64 min_advance_online_canceling = 2;
+
+  // The fee for canceling within the minimum advance notice period.
+  Price late_cancellation_fee = 3 [deprecated = true];
+
+  // The fee for no-show without canceling.
+  Price noshow_fee = 4 [deprecated = true];
+
+  // The admission policy of this service.
+  enum AdmissionPolicy {
+    // Unused.
+    ADMISSION_POLICY_UNSPECIFIED = 0;
+
+    // Customers are required to be present at the start time of the
+    // availability slot, and the service is expected to finish at the
+    // end time of the slot.
+    // Examples of TIME_STRICT use cases:
+    //   * A tour that starts at 9am that requires all attendees to arrive
+    //     at the start time, and returns at around 12pm.
+    //   * A haircut reservation at 3pm on Saturday that will take approximately
+    //   30 minutes.
+    //   * A fitness class from 6pm to 8pm.
+    TIME_STRICT = 1;
+
+    // Customers can arrive at any time between the start and end time of the
+    // availability slot to use this booking.
+    //
+    // Examples of TIME_FLEXIBLE use cases:
+    //   * A museum ticket that can be used during any time on the purchase
+    //     date.
+    //   * An afternoon admission to an amusement park that can be used from
+    //     12pm to 9pm.
+    TIME_FLEXIBLE = 2;
+
+    // Customers need to arrive at the merchant at the start time of the
+    // availability slot but can leave any time they want.
+    //
+    // For example, in the museum admission scenario, a timed entry ticket
+    // for 10am requires the user to be at the museum at 10am. The start time of
+    // availability slots for this service represents the designated entry
+    // time. The end time, however, is used solely as a key to identify the
+    // availability slot for booking.
+    TIMED_ENTRY_WITH_FLEXIBLE_DURATION = 3;
+  }
+
+  // The admission policy that applied to this service. If unset, defaults to
+  // TIME_STRICT. (optional)
+  AdmissionPolicy admission_policy = 5;
+
+  // Scheduling rules cancellation policy (required for Things-to-do).
+  // Defaults to non-refundable.
+  CancellationPolicy cancellation_policy = 7;
+}
+
+// Defines a field that is included in a ServiceIntakeForm.
+message ServiceIntakeFormField {
+  // A string from an aggregator partner which uniquely identifies a form field.
+  // This id should be the same as the id in the corresponding form field
+  // answer and must be unique across both the service level and per ticket
+  // intake forms. (required)
+  string id = 5;
+
+  // Enum to indicate the type of field.
+  enum FieldType {
+    // Fields of unspecified or unknown type will be ignored.
+    FIELD_TYPE_UNSPECIFIED = 0;
+    // A one-line input field for text.
+    SHORT_ANSWER = 1;
+    // A multi-line input field for text.
+    PARAGRAPH = 2;
+    // A set of radio buttons that requires one choice from many options.
+    MULTIPLE_CHOICE = 3;
+    // One or more enumerated items with checkboxes.
+    CHECKBOXES = 4;
+    // A selection from a dropdown.
+    DROPDOWN = 5;
+    // A yes/no button.
+    BOOLEAN = 6;
+    // A search widget that supports finding matched location given user input
+    // from provided location list.
+    LOCATION_SEARCH = 7;
+  }
+
+  // The type of this field. (required)
+  FieldType type = 1;
+
+  // The text shown to the user for this field. Deprecated, please use
+  // `localized_label` instead.
+  string label = 2 [deprecated = true];
+
+  // The text shown to the user for this field. The field can be supplied in
+  // multiple locales. (required)
+  Text localized_label = 7;
+
+  // Set if and only if the field type is LOCATION_SEARCH. Please use the
+  // "location_id" in the "location" field to specify the location value.
+  repeated string value = 3;
+
+  // Set if and only if the field type is MULTIPLE_CHOICE, CHECKBOXES, or
+  // DROPDOWN. Used to enumerate possible choices.
+  repeated Text choice_text = 8;
+
+  // Indicates whether an answer to this field is required by a user. (optional)
+  bool is_required = 4;
+
+  // Indicates whether a custom value is allowed in additional to predefined
+  // answers. This is only applicable when the field type is LOCATION_SEARCH.
+  // (optional)
+  bool allow_custom_answer = 9;
+
+  // Additional options provided in addition to the provided values. Only
+  // applicable when the field type is LOCATION_SEARCH.
+  // E.g. in addition to the provided location list, another available option
+  // can be "I will contact supplier later". (optional)
+  repeated Text additional_option = 10;
+
+  // If this question should only be shown when the user books certain ticket
+  // types, this field should be set as the set of applicable ticket type ids.
+  // Leave the field empty if the question is always applicable.
+  // (optional)
+  repeated string ticket_type_restrict = 6;
+}
+
+// Defines an intake form that customizes the service provided by a merchant.
+message ServiceIntakeForm {
+  // Fields that will be displayed to the user. (required)
+  repeated ServiceIntakeFormField field = 1;
+
+  // If true, this form will be shown to first time customers.
+  // Deprecated. This functionality is not supported for intake forms.
+  bool first_time_customers = 2 [deprecated = true];
+
+  // If true, this form will be shown to repeat customers.
+  // Deprecated. This functionality is not supported for intake forms.
+  bool returning_customers = 3 [deprecated = true];
+}
+
+// A deposit that the user may be charged or have a hold on their credit card
+// for.
+message Deposit {
+  // Deposit amount.
+  Price deposit = 1;
+
+  // Minimum advance cancellation for the deposit.
+  int64 min_advance_cancellation_sec = 2;
+
+  // Defines how the deposit is determined from the availability.
+  PriceType deposit_type = 3;
+}
+
+// A fee that a user may be charged if they have made a booking but do not
+// show up.
+message NoShowFee {
+  // The amount the user may be charged if they do not show up for their
+  // reservation.
+  Price fee = 1;
+
+  // Defines how the fee is determined from the availability.
+  PriceType fee_type = 3;
+}
+
+// Defines how a total price is determined from an availability.
+enum PriceType {
+  // The price is for a fixed amount. This is the default value if the field is
+  // not set.
+  //
+  // Examples:
+  //   $50 deposit to reserve a table; $20 no show fee for a yoga class
+  FIXED_RATE_DEFAULT = 0;
+
+  // The price specified is per person, and the total price is calculated
+  // according to the party size specified in Resources as price_micros *
+  // party_size. A PER_PERSON price must be accompanied by a party size in the
+  // availability resources. If it is not, a party size of one is used.
+  //
+  // Examples:
+  //   $10 each for tickets to a museum
+  PER_PERSON = 1;
+}
+
+// Defines whether a credit card is required in order to book an appointment.
+enum RequireCreditCard {
+  // The credit card requirement is not explicitly specified and the
+  // behaviour is identical to the one specified for CONDITIONAL.
+  REQUIRE_CREDIT_CARD_UNSPECIFIED = 0;
+
+  // Google will require a credit card for the booking if any of the following
+  // conditions are met:
+  // * the availability has a price and the prepayment_type is REQUIRED
+  // * the no_show_fee is set
+  // * the deposit field is set.
+  REQUIRE_CREDIT_CARD_CONDITIONAL = 1;
+
+  // A credit card is always required in order to book this availability
+  // regardless of other field values.
+  REQUIRE_CREDIT_CARD_ALWAYS = 2;
+}
+
+// An action URL with associated language, list of countries restricted to, and
+// optional platform that indicates which platform this action should be
+// performed on.
+message ActionLink {
+  // The entry point URL for this action link.
+  string url = 1;
+
+  // The BCP-47 language tag identifying the language in which the content
+  // from this URI is available.
+  string language = 2;
+
+  // An unordered list of ISO 3166-1 alpha-2 country codes. Leave empty for
+  // unrestricted visibility.
+  repeated string restricted_country = 3;
+
+  // The platform that this action should be performed on. If this field is
+  // unset, ACTION_PLATFORM_WEB_APPLICATION will be used as fallback.
+  ActionPlatform platform = 4;
+}
+
+// Fees that must be paid once per order, regardless of number of tickets. These
+// fields must add up to the total per order fee.
+message PerOrderFee {
+  // A fee that can vary by delivery method.
+  Price delivery_fee = 1;
+  // A fee to process the user's payment method.
+  Price processing_fee = 2;
+}
+
+// Fees that must be paid for each ticket the user purchases. These fields
+// must add up to the total per ticket fee.
+message PerTicketFee {
+  // An extra charge assessed for a service.
+  Price service_charge = 1;
+  // A fee that goes to the venue/facility.
+  Price facility_fee = 2;
+  // Per ticket taxes.
+  Price taxes = 3;
+}
+
+// The platform that the action is performed on. Web application is the general
+// fallback. It is recommended to have at least one ActionLink with
+// ACTION_PLATFORM_WEB_APPLICATION. Links with Android and iOS as platform are
+// only used on the respective system.
+enum ActionPlatform {
+  // The platform is unspecified.
+  ACTION_PLATFORM_UNSPECIFIED = 0;
+
+  // The action platform is web in general.
+  ACTION_PLATFORM_WEB_APPLICATION = 1;
+
+  // The action platform is web on mobile devices.
+  ACTION_PLATFORM_MOBILE_WEB = 2;
+
+  // The action platform is Android OS.
+  ACTION_PLATFORM_ANDROID = 3;
+
+  // The action platform is iOS.
+  ACTION_PLATFORM_IOS = 4;
+}
+
+// TicketType is used to differentiate among tickets (where a ticket can be a
+// spot on a raft trip, an admission to a museum, etc.) with different prices
+// and/or availabilities due to different user types or different service
+// attributes.
+// Only add new ticket types when at least one of the following differs:
+//    (1) short_description (2) option_description (3) price
+message TicketType {
+  // The ticket id is used to differentiate among different ticket types of the
+  // same service, and is only expected to be unique within a service.
+  string ticket_type_id = 1;
+
+  // This can be user visible, e.g., “adult”, "child", “veteran”, “Row J”, etc.
+  // Deprecated, use `localized_short_description` instead.
+  string short_description = 2 [deprecated = true];
+
+  // This can be user visible, e.g., “adult”, "child", “veteran”, “Row J”, etc.
+  // The field can be supplied in multiple locales.
+  Text localized_short_description = 6;
+
+  // The price of a single ticket of this type, exclusive of any taxes. The tax
+  // rate of Service is applied to its tickets.
+  Price price = 3;
+
+  // Additional fees for purchasing this ticket. (optional)
+  PerTicketFee per_ticket_fee = 5;
+
+  // Description of any additional option which this ticket type represents, if
+  // any. Deprecated, use `localized_option_description` instead.
+  string option_description = 4 [deprecated = true];
+
+  // Description of any additional option which this ticket type represents, if
+  // any. The field can be supplied in multiple locales.
+  //
+  // This is useful when the ticket type represents multiple dimensions.
+  //
+  // Example: an admission ticket with different types 'adult', 'child' and
+  // language as an additional option, the expected TicketType list would be:
+  //     - { ticket_type_id: "ticket_type_1"
+  //         localized_short_description { value: "adult" }
+  //         localized_option_description { value: "english" }
+  //       }
+  //     - { ticket_type_id: "ticket_type_2"
+  //         localized_short_description { value: "adult" }
+  //         localized_option_description { value: "spanish" }
+  //       }
+  //     - { ticket_type_id: "ticket_type_3"
+  //         localized_short_description { value: "child" }
+  //         localized_option_description { value: "english" }
+  //       }
+  //     - { ticket_type_id: "ticket_type_4"
+  //         localized_short_description { value: "child" }
+  //         localized_option_description { value: "spanish" }
+  //       }
+  //
+  // Optional, but if any ticket type within the service has this field set, we
+  // expect all other ticket types to have this field set as well (a default
+  // option_description could be used). E.g.
+  // [{ticket_type_1, adult, english}, {ticket_type_1, adult, ''}] is not a
+  // valid list.
+  //
+  // Only two HTML formatting tags are supported: <em> and <br>. They are
+  // intended to be used for specifying options with both a title and
+  // detailed description, for example: "<em>Premium Seating</em><br>This option
+  // offers seating at the private boxes including fully cushioned seats,
+  // private TVs, in-seat food and beverage service. These seats provide
+  // picturesque views of the field."
+  Text localized_option_description = 7;
+}
+
+// Geographic information about a location.
+message Location {
+  // The Place ID for a place in the Google Places database and on Google Maps.
+  // See https://developers.google.com/places/place-id for more about Place IDs.
+  // If this is provided, Google will match the location to this place.
+  // (optional)
+  string place_id = 1;
+
+  // The location's name, telephone, url and geo are used to support matching
+  // the location with places already present on Google Maps. It is recommended
+  // to provide the location name if possible. (optional)
+  //
+  // The name of the location. (optional)
+  string name = 2;
+
+  // The public telephone number of the location including its country and area
+  // codes, e.g. +14567891234. (optional)
+  string telephone = 3;
+
+  // The url of the location's public website. (optional)
+  string url = 4;
+
+  // The Geo info of the location, including latitude, longitude, and address.
+  // (optional)
+  GeoCoordinates geo = 5;
+
+  // Optional text to provide more precise description of the location, or
+  // instructions assisting locating the place. E.g. "Front entrance of the
+  // library", "meet at the intersect of Road A and Street B". (optional)
+  Text description = 6;
+
+  // The type of the location. Note that this field may be required when
+  // attached to a Service, see comments in Service.location for more details.
+  // (optional)
+  LocationType location_type = 7;
+
+  // Unique reference of the location within the service. This id can be used to
+  // refer to this location in other service fields. E.g in the custom intake
+  // form, a set of location ids can be used to specify pick up location
+  // options. If set, this id should be unique within the same service.
+  // Note this is only applicable for Service.
+  // (optional)
+  string location_id = 8;
+}
+
+enum LocationType {
+  // Location type unspecified.
+  LOCATION_TYPE_UNSPECIFIED = 0;
+  // The location where this service visits.
+  VISITED_LOCATION = 1;
+  // The location where this service starts, also serves as MEETING_LOCATION
+  // or START_LOCATION.
+  START_LOCATION = 2;
+  // The location where this service ends.
+  END_LOCATION = 3;
+}
+
+// Cancellation policy for a service.
+message CancellationPolicy {
+  // Defines a single refund condition. Multiple refund conditions could be
+  // used together to describe "refund steps" as various durations before the
+  // service start time.
+  message RefundCondition {
+    // Duration in seconds before the start time, until when the customer can
+    // receive a refund for part of the service's cost specified in
+    // `refund_percent`.
+    // When set to 0 (default), the service can be cancelled at any time.
+    int64 min_duration_before_start_time_sec = 1;
+
+    // The percent that can be refunded, as long as the service booking is
+    // cancelled at least `min_duration_before_start_time` before the service
+    // start time, in the range of [0, 100]. When set to 0 (default), the
+    // service is not refundable. When set to 100 this service is fully
+    // refundable.
+    uint32 refund_percent = 2;
+  }
+  // Zero or more refund conditions applicable to the policy.
+  repeated RefundCondition refund_condition = 1;
+}
+
+// Photos related to this service. Google will crawl these media to ensure
+// that they are displayed correctly to end-users. (optional)
+message RelatedMedia {
+  // URL of this media source. Google will crawl the media hosted at this URL.
+  string url = 1;
+
+  // Type of this media source.
+  MediaType type = 2;
+
+  // Enum to indicate the type of this media source. Only photos are supported.
+  // Please reach out to the Reserve with Google team if other media beyond
+  // photos need to be supported.
+  enum MediaType {
+    // Unused.
+    TYPE_UNSPECIFIED = 0;
+    // Indicates the media provided by the url is a photo.
+    PHOTO = 1;
+  }
+
+  // Caption of the media that supports i18n, only plain text is supported. Any
+  // HTML components will be stripped. (optional)
+  Text localized_caption = 5;
+
+  // Attribution information about the source of the media. Note that if
+  // the attribution is required to display with the media to give credit to
+  // photographer or agency, this field must be set. (optional)
+  Attribution attribution = 4;
+
+  // Attribution information for this media.
+  message Attribution {
+    // The text to give credit to the photographer or agency supporting i18n.
+    // This text will be displayed together with the source media. Note that
+    // only plain text is supported for this field, any HTML components will be
+    // stripped (hyperlink based attribution is not supported).
+    Text localized_text = 2;
+
+    // Deprecated, prefer to use localized_text.
+    string text = 1 [deprecated = true];
+  }
+
+  // Deprecated, prefer to use localized_caption.
+  string caption = 3 [deprecated = true];
+}
+
+// Identifies a particular value of a service attribute to be applied to a
+// Service.
+message ServiceAttributeValueId {
+  // ID of an attribute as defined in Merchant.service_attribute, e.g.
+  // "service-type".
+  string attribute_id = 1;
+
+  // ID of the value for this attribute, e.g. "haircut". Must match a value_id
+  // in the service attribute definition.
+  string value_id = 2;
+}
+
+
+// Rules related to joining the waitlist.
+message WaitlistRules {
+  // Required. Must be a positive integer for services providing waitlist
+  // functionality. If the service or merchant does not provide waitlist
+  // functionality, this must not be populated.
+  int32 min_party_size = 1;
+  // Required. Must be a positive integer for services providing waitlist
+  // functionality. If the service or merchant does not provide waitlist
+  // functionality, this must not be populated.
+  int32 max_party_size = 2;
+  // If true, the user will be able to send a free-form additional text request
+  // when joining the waitlist for this service.
+  bool supports_additional_request = 3;
+}
+
+// Additional information unique to the event ticketing vertical.
+message TicketingVerticalSpecificData {
+  // A subset of event categories for which we customize the product experience.
+  // Note: not intended to be a universal ontology of events.
+  enum EventCategory {
+    // Not specified. Do not use.
+    EVENT_CATEGORY_UNSPECIFIED = 0;
+    // Concerts.
+    EVENT_CATEGORY_CONCERT = 1;
+    // Sports events.
+    EVENT_CATEGORY_SPORTS = 2;
+    // Theatre events.
+    EVENT_CATEGORY_THEATRE = 3;
+    // Exhibits.
+    EVENT_CATEGORY_EXHIBITS = 4;
+    // Workshops and Classes.
+    EVENT_CATEGORY_WORKSHOPS_AND_CLASSES = 5;
+  }
+  // The category of the event. Set only when event falls into one of the
+  // predefined categories. (optional)
+  EventCategory event_category = 1;
+
+  // The URL of the event on the partner's website. (optional)
+  string event_url = 2;
+
+  // Identifiers, webpages, or any other public sources that refernece an
+  // entity.
+  message PublicIdentificationData {
+    // Public URL of any webpage that is dedicated to only the topic. This could
+    // include official websites, discogs, social media platforms, wikipedia or
+    // imdb pages, e.g. https://www.discogs.com/artist/1124645-Taylor-Swift,
+    // https://www.wikidata.org/wiki/Q19320959, https://twitter.com/acmilan.
+    // (optional)
+    repeated string relevant_url = 1;
+    // The 36-character musicbrainz identifier of the artist or other music
+    // entities, if applicable. See
+    // https://musicbrainz.org/doc/MusicBrainz_Identifier.
+    // (optional)
+    string musicbrainz_id = 2;
+  }
+
+  // Represents an entity related to the event.
+  message Entity {
+    // Unique identifier of the entity in the partner's database. (optional)
+    string id = 1;
+    // Name of the entity. (required)
+    string name = 2;
+    // Url of the webpage that unambiguously describes the entity.
+    // This is the webpage on the partner's website for the entity if any; for
+    // other public URLs of the entity, use relevant_url in
+    // public_identification_data. (optional)
+    string url = 3;
+
+    // The type of the entity. Note: not intended to be a universal ontology.
+    enum EntityType {
+      // Not specified. Do not use.
+      ENTITY_TYPE_UNSPECIFIED = 0;
+      // The entity represents the artist or group performing at a
+      // concert or a show. Only applicable when event category is CONCERT or
+      // THEATRE.
+      ENTITY_TYPE_PERFORMER = 1;
+      // The entity represents the sports team or player at the event. Only
+      // applicable when event category is SPORTS.
+      ENTITY_TYPE_PLAYER = 2;
+      // The entity represents the tour that this event belongs to. Only
+      // applicable when event category is CONCERT.
+      ENTITY_TYPE_CONCERT_TOUR = 3;
+      // The entity represents a sports tournament that this event
+      // belongs to. Only applicable when event category is SPORTS.
+      ENTITY_TYPE_SPORTS_SERIES = 4;
+      // The entity represents the type of play (e.g., musical, comedy, ballet,
+      // etc.) performed at the event. Only applicable when event category is
+      // THEATRE.
+      ENTITY_TYPE_PLAY = 5;
+    }
+    // The type of the entity. (optional)
+    EntityType entity_type = 4;
+
+    // The role of the entity in the event.
+    enum EntityRole {
+      // Not specified.
+      ENTITY_ROLE_UNSPECIFIED = 0;
+      // The entity represents a headliner or leading performer at the event.
+      ENTITY_ROLE_HEADLINER = 1;
+      // The entity represents a supporting performer at the event.
+      ENTITY_ROLE_SUPPORTER = 2;
+      // The entity represents the home team at the (sports) event.
+      ENTITY_ROLE_HOME_TEAM = 3;
+      // The entity represents the away team at the (sports) event.
+      ENTITY_ROLE_AWAY_TEAM = 4;
+    }
+    // The role of the entity in the event. (optional)
+    EntityRole entity_role = 5;
+
+    // Public references of the entity. (optional)
+    PublicIdentificationData public_identification_data = 6;
+  }
+
+  // A list of entities related to the event. (optional)
+  repeated Entity entity = 3;
+}
+
+// Depth of integration supported.
+enum IntegrationType {
+  // Defaults to END_TO_END.
+  INTEGRATION_TYPE_UNSPECIFIED = 0;
+  // Complete integration that allows end to end booking through Google.
+  INTEGRATION_TYPE_END_TO_END = 1;
+  // Booking server doesn’t need to support this service. Only merchants,
+  // services, and (optionally) availability data need to be sent.
+  INTEGRATION_TYPE_INVENTORY_ONLY = 2;
+}
+
+// Content fields specific to Tours and Activities. Each element in the repeated
+// field should be independent to allow separate rendering (e.g. as a bullet
+// point).
+//
+// Populating ToursAndActivitiesContent is strongly recommended for tours and
+// activities, but not strictly required. All fields support both plain-text
+// and HTML-like text for basic formatting. Supported HTML-like formatting tags:
+//
+// Phrase tags: <br>, <strong>, <em>, <i>:
+//   Only the three tags mentioned above are supported. <br> can be used to
+//   break lines in paragraphs, and <strong>/<em> can be used to highlight
+//   important text. Any other phrase tags will be ignored.
+//
+// All other tags and custom styles are not allowed and will be removed. Any
+// URLs, anchors, and links will be stripped, and will never be displayed to
+// end-users.
+//
+// Important notes:
+//   * Don't duplicate data already supplied in `highlights`, `exclusion` and
+//     other, more specific, fields in service description.
+//   * Avoid using other tags except for the supported ones mentioned above,
+//     because the contents within unsupported tags will be stripped, and may
+//     lead to an undesirable user experience.
+message ToursAndActivitiesContent {
+  // The user-visible list of highlights.
+  repeated Text highlights = 1;
+
+  // The user-visible list of inclusions.
+  repeated Text inclusions = 2;
+
+  // The user-visible list of exclusions.
+  repeated Text exclusions = 3;
+
+  // The user-visible list of important notes, use for details such as age
+  // restrictions or other conditions that make this service unsuitable.
+  repeated Text must_know = 4;
+}
+
+// Defines Rating for an entity.
+message Rating {
+  // Average rating value (required when number_of_ratings > 0).
+  // The value must be in the range of [1, 5] and can be omitted if and only if
+  // the number_of_ratings is zero.
+  double value = 1;
+
+  // Number of ratings used in calculating the value (required).
+  uint64 number_of_ratings = 2;
+}
+
+// Availability feed specification
+
+message AvailabilityFeed {
+  FeedMetadata metadata = 1;
+  repeated ServiceAvailability service_availability = 2;
+}
+
+message ServiceAvailability {
+  // If provided, we will consider the Availability entities provided to be a
+  // complete snapshot from [start_timestamp_restrict, end_timestamp_restrict).
+  // That is, all existing availability will be deleted if the following
+  // condition holds true:
+  //
+  //    start_timestamp_restrict <= Availability.start_sec &&
+  //    Availability.start_sec < end_timestamp_restrict
+  //
+  // If a duration message is set, the condition is further restricted:
+  //   Availability.duration == duration_restrict_sec
+  //
+  // If a resource_restrict message is set, the condition is further restricted:
+  //
+  //    Availability.resource.staff_id == resource_restrict.staff_id &&
+  //    Availability.resource.room_id == resource_restrict.room_id
+  //
+  // These fields are typically used to provide a complete update of
+  // availability in a given time range.
+  //
+  // Setting start_timestamp_restrict while leaving end_timestamp_restrict unset
+  // is interpreted to mean all time beginning at start_timestamp_restrict.
+  //
+  // Setting end_timestamp_restrict while leaving start_timestamp_restrict unset
+  // is interpreted to mean all time up to the end_timestamp_restrict.
+  //
+  // In Unix time format (seconds since the epoch) from UTC. (both optional)
+  int64 start_timestamp_restrict = 1;
+  int64 end_timestamp_restrict = 2;
+
+  // If provided, the timestamp restricts will be applied only to the given
+  // merchant or service.
+  //
+  // These fields are typically used to provide complete snapshot of
+  // availability in a given range (defined above) for a specific merchant or
+  // service.
+  //
+  // Leaving these fields unset, or setting these to the empty string or null,
+  // is interpreted to mean that no restrict is intended. (both optional)
+  string merchant_id_restrict = 3;
+  string service_id_restrict = 4;
+
+  // Setting duration further restricts the scope of the update to just the
+  // availability with matching duration.
+  //
+  // In seconds. (optional)
+  int64 duration_restrict_sec = 7;
+
+  // Setting resources_restrict further restricts the scope of the update to
+  // just this set of resources. All id fields of the resources must match
+  // exactly. (optional)
+  Resources resources_restrict = 6;
+
+  // All Availability Slots included in this Service Availability (required)
+  repeated Availability availability = 5;
+}
+
+// An availability of the merchant's service, indicating time and number
+// of spots.
+// The availability feed should be a list of this message.
+// Please note that it's up to the partner to call out all the possible
+// availabilities.
+// If a massage therapist is available 9am-12pm, and they provide
+// one-hour massage sessions, the aggregator should provide the feed as
+//   availability {start_sec: 9am, duration: 60 minutes, ...}
+//   availability {start_sec: 10am, duration: 60 minutes, ...}
+//   availability {start_sec: 11am, duration: 60 minutes, ...}
+// instead of
+//   availability {start_sec: 9am, duration: 180 minutes, ...}
+//
+message Availability {
+  // An opaque string from an aggregator to identify a merchant. (required)
+  string merchant_id = 1;
+  // An opaque string from aggregator to identify a service of the
+  // merchant. (required)
+  string service_id = 2;
+  // Start time of this availability, using epoch time in seconds in UTC.
+  //(required)
+  int64 start_sec = 3;
+  // Duration of the service in seconds, e.g. 30 minutes for a chair massage.
+  // (required)
+  int64 duration_sec = 4;
+  // Number of total spots and open spots of this availability.
+  // E.g. a Yoga class of 10 spots with 3 booked.
+  //   availability {spots_total: 10, spots_open: 7 ...}
+  // E.g. a chair massage session which was already booked.
+  //   availability {spots_total: 1, spots_open: 0 ...}
+  //
+  // Note: If sending requests using the availability compression format defined
+  //       below, these two fields will be inferred. A Recurrence
+  //       implies spots_total=1 and spots_open=1. A ScheduleException implies
+  //       spots_total=1 and spots_open=0.
+  // (both required if recurrence not set)
+  int64 spots_total = 5;
+  int64 spots_open = 6;
+  // An optional opaque string to identify this availability slot. If set, it
+  // will be included in the requests that book/update/cancel appointments.
+  // (optional)
+  string availability_tag = 7;
+
+  // Optional resources used to disambiguate this availability slot from
+  // others when different staff, room, or party_size values are part
+  // of the service.
+  //
+  // E.g. the same Yoga class with two 2 instructors.
+  //  availability { resources { staff_id: "1" staff_name: "Amy" }
+  //                 spots_total: 10 spots_open: 7 }
+  //  availability { resources { staff_id: "2" staff_name: "John" }
+  //                 spots_total: 5 spots_open: 2 }
+  // (optional)
+  Resources resources = 8;
+
+  // A list of IDs referencing the payment options which can be used to pay
+  // for this slot. The actual payment options are defined at the Merchant
+  // level, and can also be shared among multiple Merchants.
+  //
+  // This field overrides any payment_option_ids specified in the service
+  // message. Similarly payment_option_ids specified here do NOT have to be
+  // present in the service message, though must be defined at the
+  // Merchant level.
+  // Our current implementation limits the number of entries in this array to
+  // one element. Multiple payment_option_id are still allowed at the Service
+  // level, but an override at the availability slot level, is limited to a
+  // single payment_option_id. (optional)
+  repeated string payment_option_id = 9;
+
+  // Recurrence messages are optional, but allow for a more compact
+  // representation of consistently repeating availability slots. They typically
+  // represent a day's working schedule.
+  // ScheduleException messages are then used to represent booked/unavailable
+  // time ranges within the work day.
+  //
+  // Requirements:
+  //   1. The expansion of availability slots or recurrences must NOT create
+  //      identical slots. If the ids, start_sec, duration_sec, and resources
+  //      match, slots are considered identical.
+  //   2. Do NOT mix the standard availability format and recurrence within the
+  //      slots of a single service. Recurrence benefits merchants/services that
+  //      offer appointments. The standard format is geared towards
+  //      merchants/services with regularly scheduled classes.
+  message Recurrence {
+    // The inclusive maximum UTC timestamp the availability repeats until.
+    // (required)
+    int64 repeat_until_sec = 1;
+    // Defines the time between successive availability slots.
+    //
+    // Example: An availability with a duration of 20 min, a repeat_every_sec of
+    // 30 min, a start_sec of 9:00am, and a repeat_until_sec of 11:00am will
+    // yield slots at 9-9:20am, 9:30-9:50am, 10-10:20am, 10:30-10:50am,
+    // 11-11:20am. (required)
+    int32 repeat_every_sec = 2;
+  }
+  // The recurrence information for the availability, representing more than one
+  // start time. A recurrence should contain appointments for one working day.
+  // (optional)
+  Recurrence recurrence = 10;
+
+  // ScheduleException messages represent booked/unavailable time ranges within
+  // the workday, which are exceptions to the recurrence described above. As
+  // time slots are booked, the list of exceptions should be updated to reflect
+  // the newly unavailable time ranges. The recurrence itself shouldn't be
+  // modified.
+  message ScheduleException {
+    // The time range of the exception. Any slots described by the recurrence
+    // which overlap this closed-open time range will be considered unavailable.
+    //
+    // Example: If the recurrence specifies a duration of 20 min, a
+    // repeat_every_sec of 30 min, a start_time of 9:00am, and a
+    // repeat_until_sec of 11:00am, then a ScheduleException with a time_range
+    // of 9:45am-11:00am would make unavailable the slots at 9:30-9:50am,
+    // 10-10:20am, and 10:30-10:50am.
+    //
+    // Note that because the time range is closed-open, the slot beginning at
+    // 11am slot would not be impacted.
+    TimeRange time_range = 1;
+  }
+  // Times when this service cannot be scheduled. To limit the number of
+  // schedule_exception messages, consider joining adjacent exceptions.
+  // (optional)
+  repeated ScheduleException schedule_exception = 11;
+
+  // Defines how a deposit may be charged to the user. Overrides the service
+  // deposit if one was specified. Setting this to an empty Deposit message
+  // removes any service-level deposit. (optional)
+  Deposit deposit = 12;
+
+  // Defines a no show fee that may be charged to the user. Overrides the
+  // service no show fee if one was specified. Setting this to an empty
+  // NoShowFee message removes any service-level no show fee. (optional)
+  NoShowFee no_show_fee = 13;
+
+  // Indicates whether the user must provide a credit card in order to book this
+  // availability slot.
+  // If the value is not set, it is inherited from the service level if it's set
+  // there. (optional)
+  RequireCreditCard require_credit_card = 14;
+
+  // Indicates a list of supported ticket types for this availability slot. If
+  // unset, all ticket types in the parent service are available for this slot.
+  // Note that the values of this field must be defined in the parent service.
+  // Examples:
+  //
+  // * Service with four ticket types:
+  // TicketType {ticket_type_id: "adult_1" short_description: "Adult weekdays"}
+  // TicketType {ticket_type_id: "adult_2" short_description: "Adult weekends"}
+  // TicketType {ticket_type_id: "youth_1" short_description: "Youth weekdays"}
+  // TicketType {ticket_type_id: "youth_2" short_description: "Youth weekends"}
+  //
+  // To represent the inventory during the weekdays:
+  //   `availability {ticket_type_id: "adult_1" ticket_type_id: "youth_1"...}`.
+  // To represent the inventory during the holidays:
+  //   `availability {ticket_type_id: "adult_2" ticket_type_id: "youth_2"...}`.
+  //
+  // * Service with three ticket types:
+  // TicketType {ticket_type_id: "adult" short_description: "Adult"}
+  // TicketType {ticket_type_id: "youth" short_description: "Youth"}
+  // TicketType {ticket_type_id: "senior" short_description: "Senior"}
+  //
+  // To indicate that all three ticket types are available for this time
+  // slot, use either
+  //   `availability {ticket_type_id: "adult" ticket_type_id: "youth"
+  //   ticket_type_id: "senior" ...}`
+  // or
+  //   `availability {...}' (do not set ticket_type_id in this slot).
+  //
+  //  (optional)
+  repeated string ticket_type_id = 15;
+
+  // Availability level scheduling rules.
+  message SchedulingRuleOverrides {
+    // The last time (in seconds) that this slot is able to be booked. This
+    // timestamp must be before the start_sec of the slot to be respected
+    // (if users should be able to book after the start time, use service level
+    // SchedulingRules.min_booking_buffer_before_end_time). If present, will
+    // override anything specified in the min_booking_buffer of the
+    // corresponding Service's SchedulingRules.
+    int64 last_bookable_sec = 1;
+
+    // The first time (in seconds) that this slot is able to be booked.
+    int64 first_bookable_sec = 2;
+  }
+
+  // Availability scheduling rules. If fields are populated, they will override
+  // any corresponding scheduling rules on the service-level SchedulingRules.
+  SchedulingRuleOverrides scheduling_rule_overrides = 16;
+
+  // The confirmation modes used when booking availabilities.
+  enum ConfirmationMode {
+    // The confirmation mode was not specified.
+    // Synchronous confirmation will be assumed.
+    CONFIRMATION_MODE_UNSPECIFIED = 0;
+    // Bookings for this availability will be confirmed synchronously.
+    CONFIRMATION_MODE_SYNCHRONOUS = 1;
+    // Bookings for this availability will be confirmed asynchronously.
+    CONFIRMATION_MODE_ASYNCHRONOUS = 2;
+  }
+  // The confirmation mode that will be used when booking this availability.
+  // Attempts to create bookings for availabilities with a confirmation mode
+  // of CONFIRMATION_MODE_SYNCHRONOUS must be immediatlely confirmed or denied.
+  // Attempts to create bookings for availabilities with confirmation mode
+  // of CONFIRMATION_MODE_ASYNCHRONOUS must be either immediately denied
+  // or created with status PENDING. Populating confirmation_mode is strongly
+  // recommended, but not strictly required. (optional)
+  ConfirmationMode confirmation_mode = 17;
+}
+
+// A resource is used to disambiguate availability slots from one another when
+// different staff, room or party_size values are part of the service.
+// Multiple slots for the same service and time interval can co-exist when they
+// have different resources.
+message Resources {
+  // One of staff_id, room_id, or party_size must be set.
+
+  // Optional ID for a staff member providing the service. This field identifies
+  // the staff member across all merchants, services, and availability records.
+  // It also needs to be stable over time to allow correlation with past
+  // bookings. (optional but required if staff_name is present)
+  string staff_id = 1;
+
+  // Optional name of a staff member providing the service. This field will be
+  // displayed to users making a booking, and should be human-readable, as
+  // opposed to an opaque identifier. (optional but required if staff_id is
+  // present)
+  string staff_name = 2;
+
+  // An optional ID for the room the service is located in. This field
+  // identifies the room across all merchants, services, and availability
+  // records. It also needs to be stable over time to allow correlation with
+  // past bookings. (optional but required if room_name is present)
+  string room_id = 3;
+
+  // An optional name for the room the service is located in. This
+  // field will be displayed to users making a booking, and should be human
+  // readable, as opposed to an opaque identifier. (optional but required if
+  // room_id is present)
+  // In dining a room name should only be used for seating areas such as the bar
+  // or patio and should not be used for fixed price menus, special activities,
+  // or any other non-room value (such as reservation or dinner). It is strongly
+  // recommended that the default seating area not have a room associated with
+  // it.
+  string room_name = 4;
+
+  // Applicable only for Dining: The party size that can be accommodated
+  // during this time slot. A restaurant can be associated with multiple Slots
+  // for the same time, each specifying a different party_size, if for instance
+  // 2, 3, or 4 people can be seated with a reservation. (optional)
+  int32 party_size = 5;
+}
